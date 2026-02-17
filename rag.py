@@ -32,45 +32,56 @@ def get_local_docs_with_fallback(query, k=4):
     """Try to use Chroma for retrieval; if unavailable, fall back to a simple keyword search over
     markdown files in `DATA_PATH`."""
     global _db
+    # Try Chroma first
     try:
         # Only attempt to construct Chroma if the DB directory exists and appears populated.
         import os
         # allow forcing the lightweight file-search fallback to avoid heavy imports
         if os.getenv('FORCE_LOCAL_FALLBACK') or os.getenv('CHROMA_FORCE_FALLBACK'):
-            raise RuntimeError('Forced local fallback')
+             raise RuntimeError('Forced local fallback')
         if os.path.isdir(DB_PATH) and any(os.scandir(DB_PATH)):
             if _db is None:
                 # lazy import and construction to avoid heavy deps at module import
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 _db = Chroma(persist_directory=DB_PATH, embedding_function=embeddings)
             return _db.similarity_search(query, k=k)
-        # If DB not present, fall through to file-search fallback.
-    except Exception:
-        # fallback: simple file search
-        import os
-        scores = []
-        qterms = [t.lower() for t in query.split() if t.strip()]
-        for root, _dirs, files in os.walk('data/laptops'):
-            for fname in files:
-                if not fname.lower().endswith('.md'):
-                    continue
-                p = os.path.join(root, fname)
-                try:
-                    with open(p, 'r', encoding='utf-8') as fh:
-                        text = fh.read()
-                except Exception:
-                    continue
-                txt = text.lower()
-                score = sum(txt.count(t) for t in qterms)
-                if score > 0:
-                    # create a lightweight doc-like object compatible with code below
-                    class D:
-                        def __init__(self, page_content, metadata):
-                            self.page_content = page_content
-                            self.metadata = metadata
-                    scores.append((score, D(text, {"source": p})))
-        scores.sort(key=lambda x: x[0], reverse=True)
-        return [d for _s, d in scores[:k]]
+    except Exception as e:
+        print(f"DEBUG: Chroma retrieval failed or skipped: {e}")
+        pass
+
+    # Fallback: simple file search (Always run if Chroma didn't return)
+    import os
+    scores = []
+    qterms = [t.lower() for t in query.split() if t.strip()]
+    # Use absolute path calculation for robustness in Cloud environment
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(base_dir, 'data/laptops')
+    
+    if not os.path.exists(data_dir):
+        print(f"DEBUG: Data directory not found at {data_dir}")
+        return []
+
+    for root, _dirs, files in os.walk(data_dir):
+        for fname in files:
+            if not fname.lower().endswith('.md'):
+                continue
+            p = os.path.join(root, fname)
+            try:
+                with open(p, 'r', encoding='utf-8') as fh:
+                    text = fh.read()
+            except Exception:
+                continue
+            txt = text.lower()
+            score = sum(txt.count(t) for t in qterms)
+            if score > 0:
+                # create a lightweight doc-like object compatible with code below
+                class D:
+                    def __init__(self, page_content, metadata):
+                        self.page_content = page_content
+                        self.metadata = metadata
+                scores.append((score, D(text, {"source": p})))
+    scores.sort(key=lambda x: x[0], reverse=True)
+    return [d for _s, d in scores[:k]]
 
 
 def get_llm():
