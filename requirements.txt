@@ -6,3 +6,5 @@ sentence-transformers
 duckduckgo-search
 python-dotenv
 streamlit
+requests
+googlesearch-python
