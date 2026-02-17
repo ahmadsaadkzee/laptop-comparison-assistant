@@ -235,31 +235,15 @@ def web_search(query: str) -> str:
                 with DDGS() as ddgs:
                     for r in ddgs.text(q, max_results=max_results):
                         got.append(_format_item(r))
-            except Exception:
-                pass
-
-        # Strategy 2: Old DDGS
-        if not got:
-            try:
-                from duckduckgo_search import DDGS as OldDDGS
-                with OldDDGS() as ddgs:
-                    for r in ddgs.text(q, max_results=max_results):
-                        got.append(_format_item(r))
             except Exception as e:
-                print(f"WEB_SEARCH ERROR (HTML Fallback): {e}")
+                print(f"WEB_SEARCH ERROR (DDGS Primary): {e}")
 
-        # Strategy 4: Google Search (via googlesearch-python)
+        # Strategy 2: Google Search (Fallback 1)
         if not got:
             try:
                 from googlesearch import search
-                # perform search
-                # search() returns a generator of URLs
                 count = 0
                 for url in search(q, num_results=max_results, advanced=True):
-                    # advanced=True yields SearchResult objects with title/desc in some versions, 
-                    # but standard version yields simple strings or SearchResult objects.
-                    # Safely handle both.
-                    
                     title = "Google Result"
                     snippet = "See URL for details"
                     href = url
@@ -273,6 +257,49 @@ def web_search(query: str) -> str:
                     if count >= max_results: break
             except Exception as e:
                 print(f"WEB_SEARCH ERROR (Google Fallback): {e}")
+
+        # Strategy 3: Old DDGS (Fallback 2)
+        if not got:
+            try:
+                from duckduckgo_search import DDGS as OldDDGS
+                with OldDDGS() as ddgs:
+                    for r in ddgs.text(q, max_results=max_results):
+                        got.append(_format_item(r))
+            except Exception:
+                pass
+
+        # Strategy 4: HTML Scraping (Last Resort)
+        if not got:
+            try:
+                import requests
+                from urllib.parse import unquote
+                
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                }
+                payload = {'q': q}
+                resp = requests.post("https://html.duckduckgo.com/html/", data=payload, headers=headers, timeout=10)
+                
+                if resp.status_code == 200:
+                    text = resp.text
+                    links = re.findall(r'<a class="result__a" href="([^"]+)">([^<]+)</a>', text)
+                    count = 0
+                    for href, title in links:
+                        if count >= max_results: break
+                        if "uddg=" in href:
+                             try:
+                                 href = unquote(href.split("uddg=")[1].split("&")[0])
+                             except Exception: pass
+                        snippet = "Fallback search result"
+                        start_idx = text.find(href)
+                        if start_idx != -1:
+                             snippet_match = re.search(r'<a class="result__snippet"[^>]*>(.*?)</a>', text[start_idx:])
+                             if snippet_match:
+                                 snippet = html.unescape(re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip())
+                        got.append(f"Title: {html.unescape(title)}\nURL: {href}\nSnippet: {snippet}")
+                        count += 1
+            except Exception as e:
+                 print(f"WEB_SEARCH ERROR (HTML Fallback): {e}")
 
         return got
 
