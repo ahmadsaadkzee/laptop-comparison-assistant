@@ -42,11 +42,16 @@ if prompt := st.chat_input("Ex: Compare Dell XPS 13 vs Dell Latitude 7400"):
                 # Pass history excluding the current prompt to avoid duplication
                 history_to_pass = st.session_state.messages[:-1]
                 print(f"STREAMLIT DEBUG: Passing history of length {len(history_to_pass)}")
-                response, source = rag.answer_question(prompt, history=history_to_pass)
+                response, source, debug_ctx = rag.answer_question(prompt, history=history_to_pass)
                 st.markdown(response)
+                
                 if source:
                     with st.expander("Source Information"):
                          st.write(source)
+                
+                # Debug Expander for Context
+                with st.expander("🔍 Debug: View Retrieved Context"):
+                    st.code(debug_ctx, language="text")
                 
                 # Add assistant response to chat history
                 st.session_state.messages.append({
