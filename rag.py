@@ -230,7 +230,7 @@ def web_search(query):
 
         # 3. HTML Scraping Fallback (last resort)
         if not got:
-            try:
+                # 3. HTML Scraping Fallback (last resort)
                 print(f"DEBUG: Attempting HTML fallback for '{q}'")
                 import requests
                 from html import unescape
@@ -240,14 +240,40 @@ def web_search(query):
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                 }
-                resp = requests.get("https://html.duckduckgo.com/html/", params={"q": q}, headers=headers, timeout=10)
+                # Use params payload correctly
+                payload = {'q': q}
+                resp = requests.post("https://html.duckduckgo.com/html/", data=payload, headers=headers, timeout=10)
+                
                 if resp.status_code == 200:
                     text = resp.text
-                    # Simple regex to find result links in DDG HTML version
+                    # Regex to find links in the HTML result table
+                    # Matches: <a class="result__a" href="...">...</a>
+                    # Result link format often: <a class="result__a" href="//duckduckgo.com/l/?uddg=...">Title</a>
                     links = re.findall(r'<a class="result__a" href="([^"]+)">([^<]+)</a>', text)
-                    for href, title in links[:max_results]:
-                         snippet = "" # Snippet extraction is harder with regex, title + url is often enough
-                         got.append(f"Title: {unescape(title)} | URL: {href}")
+                    
+                    count = 0
+                    for href, title in links:
+                        if count >= max_results: break
+                        
+                        # Cleanup URL (sometimes it's a redirect wrapper)
+                        # If it starts with //duckduckgo.com/l/?uddg=, we need to decode
+                        if href.startswith("//duckduckgo.com/l/?uddg=") or "uddg=" in href:
+                             try:
+                                 from urllib.parse import unquote
+                                 # simple extract
+                                 href = unquote(href.split("uddg=")[1].split("&")[0])
+                             except:
+                                 pass
+                                 
+                        snippet = "Fallback search result" 
+                        # Try to find snippet div? usually <a class="result__snippet" ...>
+                        
+                        got.append(f"Title: {unescape(title)}\nURL: {href}\nSnippet: {snippet}")
+                        count += 1
+                else:
+                    print(f"DEBUG: HTML fallback failed with status {resp.status_code}")
+            except Exception as e:
+                print(f"DEBUG: HTML fallback failed: {e}")
             except Exception as e:
                 print(f"HTML fallback failed: {e}")
 
