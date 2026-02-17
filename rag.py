@@ -230,6 +230,7 @@ def web_search(query):
 
         # 3. HTML Scraping Fallback (last resort)
         if not got:
+            try:
                 # 3. HTML Scraping Fallback (last resort)
                 print(f"DEBUG: Attempting HTML fallback for '{q}'")
                 import requests
@@ -247,8 +248,6 @@ def web_search(query):
                 if resp.status_code == 200:
                     text = resp.text
                     # Regex to find links in the HTML result table
-                    # Matches: <a class="result__a" href="...">...</a>
-                    # Result link format often: <a class="result__a" href="//duckduckgo.com/l/?uddg=...">Title</a>
                     links = re.findall(r'<a class="result__a" href="([^"]+)">([^<]+)</a>', text)
                     
                     count = 0
@@ -256,18 +255,14 @@ def web_search(query):
                         if count >= max_results: break
                         
                         # Cleanup URL (sometimes it's a redirect wrapper)
-                        # If it starts with //duckduckgo.com/l/?uddg=, we need to decode
                         if href.startswith("//duckduckgo.com/l/?uddg=") or "uddg=" in href:
                              try:
                                  from urllib.parse import unquote
-                                 # simple extract
                                  href = unquote(href.split("uddg=")[1].split("&")[0])
                              except:
                                  pass
                                  
                         snippet = "Fallback search result" 
-                        # Try to find snippet div? usually <a class="result__snippet" ...>
-                        
                         got.append(f"Title: {unescape(title)}\nURL: {href}\nSnippet: {snippet}")
                         count += 1
                 else:
