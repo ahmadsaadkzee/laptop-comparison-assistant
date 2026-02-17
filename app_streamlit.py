@@ -55,4 +55,6 @@ if prompt := st.chat_input("Ex: Compare Dell XPS 13 vs Dell Latitude 7400"):
                     "source": source
                 })
             except Exception as e:
+                import traceback
                 st.error(f"An error occurred: {e}")
+                st.code(traceback.format_exc())
