@@ -262,7 +262,14 @@ def web_search(query):
                              except:
                                  pass
                                  
-                        snippet = "Fallback search result" 
+                        # Try to capture the snippet
+                        # Structure is often: <a class="result__snippet" ...>Snippet Text</a>
+                        # We use a broad regex to find the snippet *after* the title link
+                        snippet_match = re.search(r'<a class="result__snippet"[^>]*>(.*?)</a>', text[text.find(href):])
+                        snippet = "Fallback search result"
+                        if snippet_match:
+                            snippet = unescape(re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip())
+                            
                         got.append(f"Title: {unescape(title)}\nURL: {href}\nSnippet: {snippet}")
                         count += 1
                 else:
