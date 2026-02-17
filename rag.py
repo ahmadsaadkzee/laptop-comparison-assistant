@@ -274,8 +274,6 @@ def web_search(query):
                     print(f"DEBUG: HTML fallback failed with status {resp.status_code}")
             except Exception as e:
                 print(f"DEBUG: HTML fallback failed: {e}")
-            except Exception as e:
-                print(f"HTML fallback failed: {e}")
 
         return got
 
