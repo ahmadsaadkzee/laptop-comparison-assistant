@@ -307,9 +307,9 @@ def _extract_entities_from_query(query: str):
 
 def answer_question(query, history=[]):
     print(f"DEBUG: answer_question called with query='{query}' type(history)={type(history)}")
-    try:
-        docs = local_retrieval(query)
-        print(f"DEBUG: local_retrieval returned docs of type {type(docs)} len={len(docs) if docs is not None else 'None'}")
+    # try: removed to fix syntax error
+    docs = local_retrieval(query)
+    print(f"DEBUG: local_retrieval returned docs of type {type(docs)} len={len(docs) if docs is not None else 'None'}")
 
 
     if is_sufficient(docs):
