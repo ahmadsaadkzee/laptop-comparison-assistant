@@ -276,8 +276,19 @@ def web_search(query: str) -> str:
 
         return got
 
-    # Execute search with variants (e.g., "specs", "review")
-    variants = [f"{query} specs", f"{query} specifications", query, f"{query} review"]
+    # Execute search with prioritized variants
+    # Ensure 'laptop' context is present to disambiguate model numbers (e.g. "N5110" -> TV channel vs Laptop)
+    base_query = query
+    if "laptop" not in query.lower():
+        base_query = f"{query} laptop"
+
+    variants = [
+        f"{base_query} specs", 
+        f"{base_query} specifications", 
+        f"{base_query} review", 
+        query # Fallback to original raw query
+    ]
+    
     for v in variants:
         items = _try_single_query(v, max_results=3)
         if items:
