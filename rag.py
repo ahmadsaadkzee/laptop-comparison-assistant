@@ -491,10 +491,10 @@ def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str
     # 6. Call LLM
     llm_func, err_msg = get_llm()
     if err_msg or not llm_func:
-        return f"System Error: {err_msg or 'LLM Unavailable'}", source
+        return f"System Error: {err_msg or 'LLM Unavailable'}", source, context
 
     try:
         response = llm_func(full_prompt)
-        return response, source
+        return response, source, context
     except Exception as e:
-        return f"Error generating response: {str(e)}", source
+        return f"Error generating response: {str(e)}", source, context
