@@ -278,12 +278,68 @@ def web_search(query):
     return "[Web search results]\n" + "\n---\n".join(out)
 
 
+def _extract_subject_from_previous_query(prev_query):
+    """
+    Simulate the extraction logic to find the main entity in the previous query.
+    e.g. "tell me about macbook pro" -> "macbook pro"
+    """
+    if not prev_query:
+        return None
+    q = prev_query.lower()
+    for prefix in ["tell me about ", "what is ", "review ", "specs for ", "specifications for "]:
+        if q.startswith(prefix):
+            return prev_query[len(prefix):].strip()
+    return prev_query.strip()
+
+def _resolve_coreferences(query, history):
+    """
+    Replace 'it', 'this', 'that' with the subject of the last user query.
+    """
+    if not history:
+        return query
+        
+    last_user_msg = None
+    # Iterate backwards to find last user message
+    for msg in reversed(history):
+        if msg.get("role") == "user":
+            last_user_msg = msg.get("content")
+            break
+            
+    if not last_user_msg:
+        return query
+        
+    q_lower = query.lower()
+    # Simple check for coreference markers
+    markers = ["it", "this", "that"]
+    has_marker = False
+    # Check if marker exists as a distinct word
+    for m in markers:
+        # Check for " compare it ", " it ", etc. or at ends
+        if re.search(r'\b' + re.escape(m) + r'\b', q_lower):
+            has_marker = True
+            break
+            
+    if has_marker:
+        subject = _extract_subject_from_previous_query(last_user_msg)
+        if subject:
+            print(f"DEBUG: Resolved coreference in '{query}' -> replacing with '{subject}'")
+            # Use regex to replace whole word 'it'/'this'/'that' case-insensitively
+            for m in markers:
+                 query = re.sub(r'\b' + re.escape(m) + r'\b', subject, query, flags=re.IGNORECASE)
+            return query
+            
+    return query
+
 def _extract_entities_from_query(query: str):
     """Return (entity_a, entity_b) if two entities can be extracted from a compare-style query.
     Examples matched: 'compare A with B', 'A vs B', 'compare A and B', 'A versus B'."""
     if not query:
         return (None, None)
     q = query.strip()
+    
+    # Handle "Compare X" (single entity implicit?) -> No, usually implies vs something else.
+    # But "Compare X and Y" is common.
+
     patterns = [
         r"compare\s+(.+?)\s+vs\.?\s+(.+)$",
         r"compare\s+(.+?)\s+with\s+(.+)$",
@@ -291,6 +347,7 @@ def _extract_entities_from_query(query: str):
         r"(.+?)\s+v[s]?\.?\s+(.+)$",
         r"compare\s+(.+?)\s+and\s+(.+)$",
         r"(.+?)\s+versus\s+(.+)$",
+        r"difference between\s+(.+?)\s+and\s+(.+)$",
     ]
     for pat in patterns:
         m = re.search(pat, q, flags=re.IGNORECASE)
@@ -301,6 +358,7 @@ def _extract_entities_from_query(query: str):
             if a.lower().startswith("compare "):
                 a = a[8:].strip()
             return (a, b)
+            
     # fallback: split by common separators
     for sep in [" vs ", " v ", " vs. ", " - "]:
         if sep in q.lower():
@@ -310,14 +368,31 @@ def _extract_entities_from_query(query: str):
                 if a.lower().startswith("compare "):
                     a = a[8:].strip()
                 return (a, parts[1].strip())
+    
+    # Handle "Tell me about X" -> return (X, None) for hybrid search to use X
+    # This helps "tell me about macbook pro" query to trigger web search if needed
+    lower_q = q.lower()
+    for prefix in ["tell me about ", "what is ", "review ", "specs for "]:
+        if lower_q.startswith(prefix):
+             ent = q[len(prefix):].strip()
+             return (ent, None)
+
     # last-resort: return last two words as second entity
-    toks = q.split()
-    if len(toks) >= 2:
-        return (" ".join(toks[:-2]).strip() or None, " ".join(toks[-2:]))
+    # Only do this if it looks like a comparison request?
+    # Doing this blindly for "tell me about macbook pro" yields "macbook" "pro" which is bad.
+    # So we disable last-resort for short queries or return None
+    
     return (None, None)
 
 def answer_question(query, history=[]):
     print(f"DEBUG: answer_question called with query='{query}' type(history)={type(history)}")
+    
+    # Resolve "it", "this" to previous context
+    original_query = query
+    query = _resolve_coreferences(query, history)
+    if query != original_query:
+        print(f"DEBUG: Query resolved to: '{query}'")
+
     # try: removed to fix syntax error
     docs = local_retrieval(query)
     print(f"DEBUG: local_retrieval returned docs of type {type(docs)} len={len(docs) if docs is not None else 'None'}")
