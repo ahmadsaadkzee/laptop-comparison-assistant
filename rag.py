@@ -291,19 +291,44 @@ def web_search(query: str) -> str:
     for v in variants:
         # Debug check
         print(f"DEBUG: Searching Google for '{v}'")
-        items = _try_single_query(v, max_results=3)
+        combined_results.append(f"DEBUG: Searching for '{v}'")
+        items = _try_single_query(v, max_results=5)
         
-        # Filter out junk results (Google homepage, Sign In, etc.)
+        # Filter out junk results
         valid_items = []
+        required_term = base_query.replace(" laptop", "").strip().lower() # e.g. "n5110"
+        
         for item in items:
+            # Junk titles
             if "Title: Google" in item or "Title: Sign in" in item or "Title: Acne" in item:
                 continue
+            
+            # Strict Keyword Validation
+            # The result MUST contain the specific model name (e.g. "n5110")
+            if required_term not in item.lower():
+                continue
+                
             valid_items.append(item)
             
         if valid_items:
             combined_results.extend(valid_items)
+            
         if len(combined_results) >= 8:
             break
+            
+    # Fallback: If Google failed to give VALID results, try strict DuckDuckGo
+    if len(combined_results) <= 1: # Only header debug line
+        print("DEBUG: Google failed validation, falling back to DDGS")
+        combined_results.append("DEBUG: Falling back to DDGS")
+        try:
+             # Try DDGS with the specific variants
+             if DDGS:
+                with DDGS() as ddgs:
+                    for v in variants:
+                        for r in ddgs.text(v, max_results=3):
+                             combined_results.append(_format_item(r))
+        except Exception as e:
+            print(f"Fallback DDGS Error: {e}")
 
     if not combined_results:
         return ""
