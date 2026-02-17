@@ -285,14 +285,23 @@ def web_search(query: str) -> str:
     variants = [
         f"{base_query} specs", 
         f"{base_query} specifications", 
-        f"{base_query} review", 
-        query # Fallback to original raw query
+        f"{base_query} review"
     ]
     
     for v in variants:
+        # Debug check
+        print(f"DEBUG: Searching Google for '{v}'")
         items = _try_single_query(v, max_results=3)
-        if items:
-            combined_results.extend(items)
+        
+        # Filter out junk results (Google homepage, Sign In, etc.)
+        valid_items = []
+        for item in items:
+            if "Title: Google" in item or "Title: Sign in" in item or "Title: Acne" in item:
+                continue
+            valid_items.append(item)
+            
+        if valid_items:
+            combined_results.extend(valid_items)
         if len(combined_results) >= 8:
             break
 
