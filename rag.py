@@ -278,28 +278,55 @@ def web_search(query):
     return "[Web search results]\n" + "\n---\n".join(out)
 
 
-def _extract_subject_from_previous_query(prev_query):
+def _extract_all_entities(query: str):
     """
-    Simulate the extraction logic to find the main entity in the previous query.
-    e.g. "tell me about macbook pro" -> "macbook pro"
+    Extract a list of entities from a query.
+    Handles 'compare A, B, and C', 'A vs B vs C', etc.
+    Returns a list of strings.
     """
-    if not prev_query:
-        return None
-    q = prev_query.lower()
-    for prefix in ["tell me about ", "what is ", "review ", "specs for ", "specifications for "]:
+    if not query:
+        return []
+    
+    q = query.lower()
+    
+    # Handle typos
+    q = q.replace("comapre", "compare")
+    
+    # Remove command prefixes
+    for prefix in ["compare ", "comparison of ", "tell me about ", "what is ", "review ", "specs for ", "specifications for ", "difference between "]:
         if q.startswith(prefix):
-            return prev_query[len(prefix):].strip()
-    return prev_query.strip()
+            q = q[len(prefix):]
+            break
+            
+    # Split by common delimiters
+    # We want to split by: " vs ", " v ", " vs. ", " with ", " and ", ",", " versus "
+    # Note: "between" is often part of "difference between", handled by prefix removal above
+    
+    # Use regex to split
+    tokens = re.split(r'\s+(?:vs\.?|v\.?|with|and|,|versus)\s+', q)
+    
+    # Clean up tokens
+    entities = []
+    seen = set()
+    for t in tokens:
+        clean_t = t.strip(" \t\n\r'\".,")
+        if clean_t and clean_t not in seen:
+            # Filter out common stop words that might remain if split failed
+            if clean_t in ["between"]:
+                continue
+            entities.append(clean_t)
+            seen.add(clean_t)
+            
+    return entities
 
 def _resolve_coreferences(query, history):
     """
-    Replace 'it', 'this', 'that' with the subject of the last user query.
+    Replace 'it', 'this', 'that', 'both' with entities from the last user query.
     """
     if not history:
         return query
         
     last_user_msg = None
-    # Iterate backwards to find last user message
     for msg in reversed(history):
         if msg.get("role") == "user":
             last_user_msg = msg.get("content")
@@ -309,85 +336,43 @@ def _resolve_coreferences(query, history):
         return query
         
     q_lower = query.lower()
-    # Simple check for coreference markers
+    
+    # helper to find subject(s)
+    prev_entities = _extract_all_entities(last_user_msg)
+    
+    # Handle "both" or "these" -> join all previous entities
+    if "both" in q_lower or "these" in q_lower or "all of them" in q_lower:
+        if prev_entities:
+            replacement = " and ".join(prev_entities)
+            # Regex replace
+            for keyword in ["both", "these", "all of them"]:
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                if re.search(pattern, q_lower):
+                    print(f"DEBUG: Resolved '{keyword}' to '{replacement}'")
+                    query = re.sub(pattern, replacement, query, flags=re.IGNORECASE)
+                    # We continue incase there are other markers
+    
+    # Handle singular "it", "this", "that" -> use first entity if multiple, or the only one
     markers = ["it", "this", "that"]
     has_marker = False
-    # Check if marker exists as a distinct word
     for m in markers:
-        # Check for " compare it ", " it ", etc. or at ends
         if re.search(r'\b' + re.escape(m) + r'\b', q_lower):
             has_marker = True
             break
             
-    if has_marker:
-        subject = _extract_subject_from_previous_query(last_user_msg)
-        if subject:
-            print(f"DEBUG: Resolved coreference in '{query}' -> replacing with '{subject}'")
-            # Use regex to replace whole word 'it'/'this'/'that' case-insensitively
-            for m in markers:
-                 query = re.sub(r'\b' + re.escape(m) + r'\b', subject, query, flags=re.IGNORECASE)
-            return query
-            
+    if has_marker and prev_entities:
+        subject = prev_entities[0] # Best guess
+        print(f"DEBUG: Resolved coreference in '{query}' -> replacing with '{subject}'")
+        for m in markers:
+             query = re.sub(r'\b' + re.escape(m) + r'\b', subject, query, flags=re.IGNORECASE)
+
     return query
 
-def _extract_entities_from_query(query: str):
-    """Return (entity_a, entity_b) if two entities can be extracted from a compare-style query.
-    Examples matched: 'compare A with B', 'A vs B', 'compare A and B', 'A versus B'."""
-    if not query:
-        return (None, None)
-    q = query.strip()
-    
-    # Handle "Compare X" (single entity implicit?) -> No, usually implies vs something else.
-    # But "Compare X and Y" is common.
-
-    patterns = [
-        r"compare\s+(.+?)\s+vs\.?\s+(.+)$",
-        r"compare\s+(.+?)\s+with\s+(.+)$",
-        r"(.+?)\s+vs\.?\s+(.+)$",
-        r"(.+?)\s+v[s]?\.?\s+(.+)$",
-        r"compare\s+(.+?)\s+and\s+(.+)$",
-        r"(.+?)\s+versus\s+(.+)$",
-        r"difference between\s+(.+?)\s+and\s+(.+)$",
-    ]
-    for pat in patterns:
-        m = re.search(pat, q, flags=re.IGNORECASE)
-        if m:
-            a = m.group(1).strip(" \t\n\r'\"")
-            b = m.group(2).strip(" \t\n\r'\"")
-            # Cleanup 'compare' if caught in the first group by generic pattern
-            if a.lower().startswith("compare "):
-                a = a[8:].strip()
-            return (a, b)
-            
-    # fallback: split by common separators
-    for sep in [" vs ", " v ", " vs. ", " - "]:
-        if sep in q.lower():
-            parts = q.split(sep)
-            if len(parts) >= 2:
-                a = parts[0].strip()
-                if a.lower().startswith("compare "):
-                    a = a[8:].strip()
-                return (a, parts[1].strip())
-    
-    # Handle "Tell me about X" -> return (X, None) for hybrid search to use X
-    # This helps "tell me about macbook pro" query to trigger web search if needed
-    lower_q = q.lower()
-    for prefix in ["tell me about ", "what is ", "review ", "specs for "]:
-        if lower_q.startswith(prefix):
-             ent = q[len(prefix):].strip()
-             return (ent, None)
-
-    # last-resort: return last two words as second entity
-    # Only do this if it looks like a comparison request?
-    # Doing this blindly for "tell me about macbook pro" yields "macbook" "pro" which is bad.
-    # So we disable last-resort for short queries or return None
-    
-    return (None, None)
 
 def answer_question(query, history=[]):
     print(f"DEBUG: answer_question called with query='{query}' type(history)={type(history)}")
     
-    # Resolve "it", "this" to previous context
+    # Resolve "it", "this", "both"
     original_query = query
     query = _resolve_coreferences(query, history)
     if query != original_query:
@@ -405,9 +390,9 @@ def answer_question(query, history=[]):
         context = web_search(query)
         source = "web search"
 
-    # If we used local documents but they don't mention the other entity, append web search
+    # If we used local documents but they don't mention some entities, check specifically
     if source == "local documents":
-        ent_a, ent_b = _extract_entities_from_query(query)
+        entities = _extract_all_entities(query)
         missing_entities = []
         
         # Prepare context for robust matching
@@ -424,10 +409,10 @@ def answer_question(query, history=[]):
                 return True
             return False
 
-        if ent_a and not is_in_context(ent_a, ctx_lower, ctx_simplified):
-            missing_entities.append(ent_a)
-        if ent_b and not is_in_context(ent_b, ctx_lower, ctx_simplified):
-            missing_entities.append(ent_b)
+        # Check ALL extracted entities
+        for ent in entities:
+            if not is_in_context(ent, ctx_lower, ctx_simplified):
+                missing_entities.append(ent)
 
         if missing_entities:
             web_sources = []
@@ -438,9 +423,7 @@ def answer_question(query, history=[]):
                     web_sources.append(missing)
             
             if web_sources:
-                local_entities = []
-                if ent_a and ent_a not in missing_entities: local_entities.append(ent_a)
-                if ent_b and ent_b not in missing_entities: local_entities.append(ent_b)
+                local_entities = [e for e in entities if e not in missing_entities]
                 
                 source_parts = []
                 if local_entities:
@@ -451,8 +434,8 @@ def answer_question(query, history=[]):
                 source_parts.append(f"Web ({', '.join(web_sources)})")
                 source = ", ".join(source_parts)
 
-            # If specific searches didn't return anything, try full query
-            if source == "local documents": # implies no web search succeeded yet
+            # If specific searches didn't return anything, try full query fallback
+            if source == "local documents" and missing_entities: 
                  web = web_search(query)
                  if web:
                     context = context + "\n\n[Web search appended]\n" + web
