@@ -326,18 +326,22 @@ def web_search(query: str) -> str:
         f"{base_query} review"
     ]
     
+    variants = [
+        f"{base_query} specs", 
+        f"{base_query} specifications", 
+        f"{base_query} review"
+    ]
+    
     for v in variants:
         # Debug check
-        print(f"DEBUG: Searching Google for '{v}'")
-        combined_results.append(f"DEBUG: Searching for '{v}'")
+        print(f"DEBUG: Searching for '{v}'")
+        # combined_results.append(f"DEBUG: Searching for '{v}'") # REMOVED to avoid polluting context
         items = _try_single_query(v, max_results=5)
         
         # Filter out junk results
         valid_items = []
         
         # Robust Keyword Validation:
-        # Instead of using the raw query (which might be "tell me about macbook pro laptop m3 specs"),
-        # we extract the core entity (e.g. "macbook pro") and check for that.
         extracted_entities = _extract_all_entities(query)
         required_term = extracted_entities[0].lower() if extracted_entities else None
         
@@ -354,13 +358,18 @@ def web_search(query: str) -> str:
                 continue
             
             # Strict Validation
-            # The result MUST contain the specific entity name matches
-            # We check if ALL tokens of the required term are present in the item
-            # e.g. "Dell N5110" -> "dell", "n5110". Result "Dell Inspiron N5110" contains both.
             required_tokens = required_term.split()
-            if not all(t in item_lower for t in required_tokens):
-                # Double check: sometimes model numbers are joined or split differently
-                # But for high precision, we require the tokens to be there.
+            strict_match = all(t in item_lower for t in required_tokens)
+            
+            # Relaxed Validation (Fallback):
+            distinctive_tokens = [t for t in required_tokens if any(c.isdigit() for c in t) and len(t) > 2]
+            relaxed_match = False
+            if not strict_match and distinctive_tokens:
+                if all(dt in item_lower for dt in distinctive_tokens):
+                    relaxed_match = True
+
+            if not strict_match and not relaxed_match:
+                # If neither strict nor relaxed match, skip
                 continue
                 
             valid_items.append(item)
@@ -372,9 +381,9 @@ def web_search(query: str) -> str:
             break
             
     # Fallback: If Google failed to give VALID results, try strict DuckDuckGo
-    if len(combined_results) <= 1: # Only header debug line
+    # Note: len(combined_results) check is now accurate because we removed the debug strings
+    if len(combined_results) <= 1: 
         print("DEBUG: Google failed validation, falling back to DDGS")
-        combined_results.append("DEBUG: Falling back to DDGS")
         try:
              # Try DDGS with the specific variants
              if DDGS:
@@ -564,23 +573,26 @@ def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str
         "Do NOT apologize for missing information. If a specific spec is absolutely not found in the context, "
         "briefly mention 'Not specified' for that row, but do not start your response with a disclaimer. "
         "OUTPUT FORMATTING:\n"
-        "1. If the user explicitly asks to COMPARE laptops (e.g., 'compare X and Y', 'vs', 'difference between'), "
-        "   format the output as a MARKDOWN TABLE. The first column should be the Specification, "
-        "   and subsequent columns should be the laptops being compared.\n"
-        "2. If the user asks for general information, a single laptop review, or a follow-up question that isn't a direct comparison, "
-        "   provide a natural language TEXT response. Do NOT use a table unless requested.\n"
-        "Pay close attention to the Conversation History. If the user asks a follow-up question (e.g., 'which is better?') "
-        "or asks about what was discussed previously (e.g., 'what laptops did I ask about?'), "
-        "refer to the Conversation History to answer accurately.\n"
+        "1. **Comparison Queries**: If the user asks to COMPARE laptops (e.g., 'compare X and Y', 'vs', 'difference'), "
+        "   you MUST output a **Markdown Table**. \n"
+        "   - Columns: `| Category | Feature | [Laptop A] | [Laptop B] | ... |`\n"
+        "   - Rows: Include 'Performance' (CPU, GPU, RAM), 'Display' (Size, Res, Type), 'Battery', 'Connectivity', 'Build'.\n"
+        "   - Example: \n"
+        "     | Category | Feature | Dell XPS 13 | HP Spectre x360 |\n"
+        "     |---|---|---|---|\n"
+        "     | Performance | CPU | Intel Core i7 | Intel Core i7 |\n"
+        "2. **Single Laptop Queries**: If the user asks about a single laptop ('tell me about X'), provide a structured summary "
+        "   but you may use a list or text format if preferred. However, a table is still acceptable for specs.\n"
+        "3. **General Support**: Do NOT use a table for general questions ('how to choose a laptop').\n"
+        "\n"
         "STRICTLY limit your response to the laptops explicitly requested by the user. "
         "Do NOT provide comparisons for other laptops found in the context unless asked. "
-        "Do NOT offer 'extra suggestions' or 'other laptops you might like'.\n"
-        "CRITICAL: If the user asks for a specific model (e.g. 'Dell N510') and you cannot find info for it, "
+        "Do NOT offer 'extra suggestions'.\n"
+        "CRITICAL: If the user asks for a specific model (e.g. 'Dell N5110') and you cannot find info for it, "
         "DO NOT SUBSTITUTE it with a similar model (e.g. 'Dell XPS'). "
         "Just state that you have no data for the requested model or leave its column as 'Not Found'. "
         "It is better to say 'Not Found' than to provide the wrong laptop.\n"
-        "DOMAIN RESTRICTION: You are a LAPTOP expert. If the user asks to compare mobile phones, tablets, or other non-laptop devices, "
-        "politely decline and state that you only compare laptops. Do NOT generate comparisons for phones."
+        "DOMAIN RESTRICTION: Lapptops Only. Decline phone/tablet queries."
     )
 
     # Format History
@@ -591,7 +603,14 @@ def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str
             content = msg.get("content", "")
             formatted_history += f"{role.capitalize()}: {content}\n"
 
-    full_prompt = f"{system_prompt}\n\nContext:\n{context}\n\nConversation History:\n{formatted_history}\n\nQuestion:\n{resolved_query}"
+    # Prioritize Web Context if "N5110" or similar specific model is requested but missing from local
+    # We put context at the end to ensure it's fresh in memory, or use specific prompt engineering.
+    full_prompt = (
+        f"{system_prompt}\n\n"
+        f"Conversation History:\n{formatted_history}\n\n"
+        f"Context:\n{context}\n\n"
+        f"Question:\n{resolved_query}"
+    )
 
     # 6. Call LLM
     llm_func, err_msg = get_llm()
