@@ -152,7 +152,7 @@ def get_llm():
             import groq
             client = groq.Groq(api_key=groq_key)
 
-            def _groq_call(prompt, system=None, model='llama-3.3-70b-versatile'):
+            def _groq_call(prompt, system=None, model='meta-llama/llama-4-scout-17b-16e-instruct'):
                 msgs = []
                 if system:
                     msgs.append({'role': 'system', 'content': system})
