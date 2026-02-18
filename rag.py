@@ -355,10 +355,12 @@ def web_search(query: str) -> str:
             
             # Strict Validation
             # The result MUST contain the specific entity name matches
-            # We check if the required term matches as a substring
-            if required_term not in item_lower:
-                # Double check: maybe the user searched "N5110" and result is "Inspiron 15R" (hard to know)
-                # But for now, we enforce the term availability to avoid "Acne" results for "N5110"
+            # We check if ALL tokens of the required term are present in the item
+            # e.g. "Dell N5110" -> "dell", "n5110". Result "Dell Inspiron N5110" contains both.
+            required_tokens = required_term.split()
+            if not all(t in item_lower for t in required_tokens):
+                # Double check: sometimes model numbers are joined or split differently
+                # But for high precision, we require the tokens to be there.
                 continue
                 
             valid_items.append(item)
