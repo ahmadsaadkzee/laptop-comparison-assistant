@@ -334,16 +334,31 @@ def web_search(query: str) -> str:
         
         # Filter out junk results
         valid_items = []
-        required_term = base_query.replace(" laptop", "").strip().lower() # e.g. "n5110"
         
+        # Robust Keyword Validation:
+        # Instead of using the raw query (which might be "tell me about macbook pro laptop m3 specs"),
+        # we extract the core entity (e.g. "macbook pro") and check for that.
+        extracted_entities = _extract_all_entities(query)
+        required_term = extracted_entities[0].lower() if extracted_entities else None
+        
+        # If extraction failed (e.g. generic query), fall back to a simpler check
+        if not required_term:
+             # Remove common "command" words to find something significant
+             cleaned = query.lower().replace("tell me about", "").replace("compare", "").strip()
+             required_term = cleaned.split()[0] if cleaned else "laptop"
+
         for item in items:
             # Junk titles
-            if "Title: Google" in item or "Title: Sign in" in item or "Title: Acne" in item:
+            item_lower = item.lower()
+            if "title: google" in item_lower or "title: sign in" in item_lower or "title: acne" in item_lower:
                 continue
             
-            # Strict Keyword Validation
-            # The result MUST contain the specific model name (e.g. "n5110")
-            if required_term not in item.lower():
+            # Strict Validation
+            # The result MUST contain the specific entity name matches
+            # We check if the required term matches as a substring
+            if required_term not in item_lower:
+                # Double check: maybe the user searched "N5110" and result is "Inspiron 15R" (hard to know)
+                # But for now, we enforce the term availability to avoid "Acne" results for "N5110"
                 continue
                 
             valid_items.append(item)
