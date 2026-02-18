@@ -306,8 +306,19 @@ def web_search(query: str) -> str:
     # Execute search with prioritized variants
     # Ensure 'laptop' context is present to disambiguate model numbers (e.g. "N5110" -> TV channel vs Laptop)
     base_query = query
-    if "laptop" not in query.lower():
+    query_lower = query.lower()
+    
+    if "laptop" not in query_lower:
         base_query = f"{query} laptop"
+
+    # Special handling for generic Apple queries to avoid "rumor" pages about M5/M6
+    if "macbook" in query_lower and not any(c in query_lower for c in ['m1', 'm2', 'm3', 'm4', 'air', 'pro']):
+        # If user just says "macbook", default to latest widely available logic
+        base_query += " m3 specifications"
+    elif "macbook pro" in query_lower and not any(c in query_lower for c in ['m1', 'm2', 'm3', 'm4']):
+        base_query += " m3 pro specifications"
+    elif "macbook air" in query_lower and not any(c in query_lower for c in ['m1', 'm2', 'm3']):
+        base_query += " m3 specifications"
 
     variants = [
         f"{base_query} specs", 
