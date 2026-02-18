@@ -423,9 +423,11 @@ def _extract_all_entities(query: str) -> List[str]:
     
     entities = []
     seen = set()
+    ignored_words = {"between", "both", "these", "all", "it", "this", "that", "them"}
+    
     for t in tokens:
         clean = t.strip(" \t\n\r'\".,")
-        if clean and clean not in seen and clean not in ["between"]:
+        if clean and clean not in seen and clean not in ignored_words:
             entities.append(clean)
             seen.add(clean)
             
@@ -466,12 +468,15 @@ def _resolve_coreferences(query: str, history: List[dict]) -> str:
             if re.search(pattern, q_lower):
                 query = re.sub(pattern, replacement, query, flags=re.IGNORECASE)
 
-    # 2. Handle Singular references ("it", "this")
+    # 2. Handle Singular references ("it", "this", "its")
     # If multiple entities exist, map "it" to the FIRST one (heuristic)
-    singular_markers = ["it", "this", "that"]
+    singular_markers = ["it", "this", "that", "its"]
     if any(re.search(r'\b' + re.escape(m) + r'\b', q_lower) for m in singular_markers):
         primary_subject = prev_entities[0]
         for marker in singular_markers:
+            # Replace the marker with the entity
+            # Special handling for "its" -> "Dell XPS's" is hard, so just replace with "Dell XPS"
+            # "How is its battery" -> "How is Dell XPS battery" (Acceptable)
             query = re.sub(r'\b' + re.escape(marker) + r'\b', primary_subject, query, flags=re.IGNORECASE)
 
     return query
