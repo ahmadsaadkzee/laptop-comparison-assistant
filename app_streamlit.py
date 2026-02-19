@@ -2,12 +2,33 @@ import streamlit as st
 import rag
 import os
 
+import requests
+
 # Page configuration
 st.set_page_config(
     page_title="Laptop Comparison RAG",
     page_icon="💻",
     layout="wide"
 )
+
+# Auto-detect Location
+if "user_location" not in st.session_state:
+    try:
+        # Fast, free geolocation API
+        response = requests.get('https://ipapi.co/json/', timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.user_location = data.get('country_name', 'Global')
+        else:
+            st.session_state.user_location = "Global"
+    except Exception:
+        st.session_state.user_location = "Global"
+
+# Sidebar Display
+with st.sidebar:
+    st.header("🌍 Region Settings")
+    st.info(f"Detected Location: **{st.session_state.user_location}**")
+    st.caption("Prices and availability will be customized for this region.")
 
 # Title and description
 st.title("💻 Laptop Specification & Comparison Assistant")
@@ -42,7 +63,11 @@ if prompt := st.chat_input("Ex: Compare Dell XPS 13 vs Dell Latitude 7400"):
                 # Pass history excluding the current prompt to avoid duplication
                 history_to_pass = st.session_state.messages[:-1]
                 print(f"STREAMLIT DEBUG: Passing history of length {len(history_to_pass)}")
-                response, source, debug_ctx = rag.answer_question(prompt, history=history_to_pass)
+                response, source, debug_ctx = rag.answer_question(
+                    prompt, 
+                    history=history_to_pass,
+                    region=st.session_state.user_location
+                )
                 st.markdown(response)
                 
                 if source:

@@ -193,7 +193,7 @@ def get_llm():
     return None, "No GROQ_API_KEY or OPENAI_API_KEY found."
 
 
-def web_search(query: str) -> str:
+def web_search(query: str, region: str = None) -> str:
     """
     Search the web for `query` using multiple strategies:
     1. `ddgs` Python package (Primary)
@@ -326,12 +326,11 @@ def web_search(query: str) -> str:
         f"{base_query} review"
     ]
     
-    variants = [
-        f"{base_query} specs", 
-        f"{base_query} specifications", 
-        f"{base_query} review"
-    ]
-    
+    # Location-Aware Logic: Append price query if region is valid
+    if region and region != "Global":
+        variants.insert(0, f"{base_query} price in {region}")
+        variants.append(f"{base_query} availability in {region}")
+
     for v in variants:
         # Debug check
         print(f"DEBUG: Searching for '{v}'")
@@ -421,7 +420,8 @@ def _extract_all_entities(query: str) -> List[str]:
     
     # Remove common command prefixes
     prefixes = ["compare ", "comparison of ", "tell me about ", "what is ", "review ", 
-                "specs for ", "specifications for ", "difference between "]
+                "specs for ", "specifications for ", "price of ", "cost of ", "how much is ", 
+                "difference between "]
     for p in prefixes:
         if q.startswith(p):
             q = q[len(p):]
@@ -491,7 +491,7 @@ def _resolve_coreferences(query: str, history: List[dict]) -> str:
     return query
 
 
-def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str]:
+def answer_question(query: str, history: List[dict] = [], region: str = None) -> Tuple[str, str, str]:
     """
     Main RAG pipeline entry point.
     
@@ -516,7 +516,7 @@ def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str
         context = "\n".join(d.page_content for d in docs)
         source = "local documents"
     else:
-        context = web_search(resolved_query)
+        context = web_search(resolved_query, region=region)
         source = "web search"
 
     # 4. Consistency Check: Did local search miss explicit entities?
@@ -542,7 +542,7 @@ def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str
             # Perform specific web searches for missing entities
             web_contexts = []
             for m in missing:
-                w = web_search(m)
+                w = web_search(m, region=region)
                 if w:
                     web_contexts.append(f"[Web search for '{m}']\n{w}")
 
@@ -560,12 +560,22 @@ def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str
             
             # Final safety net: if we still have missing info and no specific web results, try full query
             if len(web_contexts) == 0 and len(missing) > 0:
-                w = web_search(resolved_query)
+                w = web_search(resolved_query, region=region)
                 if w:
                     context += "\n\n[Web search for full query]\n" + w
                     source += " + Web (Full Query)"
 
     # 5. Construct Prompt
+    # Region Context
+    region_instruction = ""
+    if region and region != "Global":
+        region_instruction = (
+            f"USER LOCATION: {region}\n"
+            f"If pricing or availability is requested, PRIORITIZE information relevant to {region} "
+            f"and its local currency (e.g. PKR for Pakistan, SAR for Saudi Arabia). "
+            f"If specific local info is missing, explicitly state: 'Price in {region} not found, approx global price is...'.\n"
+        )
+
     system_prompt = (
         "You are a professional laptop reviewer. When asked to compare laptops, provide a detailed, "
         "side-by-side comparison of key specifications (Processor, RAM, Storage, Display, Battery, OS, etc.). "
@@ -576,15 +586,17 @@ def answer_question(query: str, history: List[dict] = []) -> Tuple[str, str, str
         "1. **Comparison Queries**: If the user asks to COMPARE laptops (e.g., 'compare X and Y', 'vs', 'difference'), "
         "   you MUST output a **Markdown Table**. \n"
         "   - Columns: `| Category | Feature | [Laptop A] | [Laptop B] | ... |`\n"
-        "   - Rows: Include 'Performance' (CPU, GPU, RAM), 'Display' (Size, Res, Type), 'Battery', 'Connectivity', 'Build'.\n"
+        "   - Rows: Include 'Performance' (CPU, GPU, RAM), 'Display' (Size, Res, Type), 'Battery', 'Connectivity', 'Build', 'Price'.\n"
         "   - Example: \n"
         "     | Category | Feature | Dell XPS 13 | HP Spectre x360 |\n"
         "     |---|---|---|---|\n"
         "     | Performance | CPU | Intel Core i7 | Intel Core i7 |\n"
+        "     | Pricing | Price | ~PKR 350,000 | ~PKR 320,000 |\n"
         "2. **Single Laptop Queries**: If the user asks about a single laptop ('tell me about X'), provide a structured summary "
         "   but you may use a list or text format if preferred. However, a table is still acceptable for specs.\n"
         "3. **General Support**: Do NOT use a table for general questions ('how to choose a laptop').\n"
         "\n"
+        f"{region_instruction}"
         "STRICTLY limit your response to the laptops explicitly requested by the user. "
         "Do NOT provide comparisons for other laptops found in the context unless asked. "
         "Do NOT offer 'extra suggestions'.\n"
